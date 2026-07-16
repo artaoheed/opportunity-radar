@@ -1,9 +1,4 @@
 .env
 __pycache__/
 *.pyc
-venv/
-.venv/
-*.egg-info/
 .pytest_cache/
-.DS_Store
-quota_state.json

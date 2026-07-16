@@ -1,0 +1,41 @@
+name: daily-digest
+
+on:
+  schedule:
+    # 03:30 UTC = 04:30 WAT. GitHub cron can lag 5-15 min under load,
+    # so this targets landing before 5am rather than exactly 4:30.
+    - cron: "30 3 * * *"
+  workflow_dispatch: {}   # manual runs for testing
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          PG_HOST: ${{ secrets.PG_HOST }}
+          PG_PORT: ${{ secrets.PG_PORT }}
+          PG_USER: ${{ secrets.PG_USER }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
+          PG_DATABASE: ${{ secrets.PG_DATABASE }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          DIGEST_TO: ${{ secrets.DIGEST_TO }}
+        run: python -m src.main
