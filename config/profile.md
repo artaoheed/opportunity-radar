@@ -8,8 +8,14 @@ roles. Based in Lagos/Ibadan, Nigeria (WAT, UTC+1).
 - DevOps, platform engineering, SRE, MLOps, ML platform, infrastructure roles
 - Junior-to-mid level, or roles that value operations/programme management
   background alongside hands-on skills
-- Technical Program Manager roles with an infrastructure/platform focus
 - Early-stage startup infrastructure roles (founding engineer, first DevOps hire)
+- Technical Program Manager, program lead, or delivery lead roles in
+  engineering/platform/infrastructure orgs — programme operations background
+  (state-level coordination, hiring pipelines, reporting infrastructure at
+  national scale) is directly transferable here
+- Developer Relations / Developer Advocate roles focused on DevOps, cloud
+  native, or MLOps tooling — combines technical portfolio with
+  communication and community skills
 - CFPs for DevOps, SRE, MLOps, platform engineering, cloud native, or
   Kubernetes conferences, especially ones friendly to first-time speakers
 - Remote-worldwide, remote-EMEA, Nigeria/Africa-based, or visa-sponsoring roles

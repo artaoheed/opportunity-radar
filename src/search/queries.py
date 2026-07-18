@@ -20,6 +20,10 @@ TEMPLATES: dict[str, list[str]] = {
         '"DevOps engineer" hiring remote Africa OR Nigeria',
         'site:boards.greenhouse.io "infrastructure engineer" remote',
         '"technical program manager" infrastructure hiring remote',
+        '"technical program manager" OR "program lead" platform OR infrastructure hiring',
+        'site:boards.greenhouse.io "developer relations" OR "developer advocate"',
+        '"DevRel" OR "developer advocate" hiring remote 2026',
+        'site:jobs.lever.co "program manager" technical OR engineering',
     ],
     "startup": [
         '"founding engineer" infrastructure OR platform OR DevOps',
