@@ -8,6 +8,7 @@ Exit codes: 0 success (including 'nothing new today'), 1 hard failure
 (GitHub Actions marks the run failed and emails a workflow-failure notice)."""
 
 import logging
+import os
 import sys
 
 import requests
@@ -23,6 +24,22 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger("main")
+
+
+class _ActionsAnnotations(logging.Handler):
+    """In GitHub Actions, mirror warnings/errors as workflow annotations so
+    failures are readable from the run summary without downloading logs."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        level = "error" if record.levelno >= logging.ERROR else "warning"
+        msg = self.format(record).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::{level}::{msg}", flush=True)
+
+
+if os.environ.get("GITHUB_ACTIONS") == "true":
+    _h = _ActionsAnnotations(level=logging.WARNING)
+    _h.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+    logging.getLogger().addHandler(_h)
 
 
 def run() -> int:
