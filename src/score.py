@@ -2,7 +2,7 @@
 
 One LLM call per batch of SCORING_BATCH_SIZE candidates (not one per
 candidate) to keep free-tier usage tiny: a normal day is 1-3 calls total.
-Groq (Llama 3.3 70B) primary; Gemini (GEMINI_MODEL, default 2.5 Flash)
+Groq (GROQ_MODEL, default gpt-oss-120b) primary; Gemini (GEMINI_MODEL, default 2.5 Flash)
 automatic fallback when Groq is quota-blocked, errors, or has no key."""
 
 import json
@@ -76,7 +76,10 @@ def _call_groq(prompt: str) -> str:
             "model": settings.GROQ_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2,
-            "max_tokens": 2048,
+            # gpt-oss is a reasoning model: reasoning tokens count against
+            # this budget, so keep effort low and the ceiling generous.
+            "reasoning_effort": "low",
+            "max_completion_tokens": 8192,
         },
         timeout=60,
     )
@@ -93,7 +96,14 @@ def _call_gemini(prompt: str) -> str:
         url,
         json={
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048},
+            "generationConfig": {
+                "temperature": 0.2,
+                # 2.5 Flash "thinks" by default and those tokens eat the
+                # output budget, truncating the JSON. Scoring needs none.
+                "thinkingConfig": {"thinkingBudget": 0},
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 8192,
+            },
         },
         timeout=60,
     )

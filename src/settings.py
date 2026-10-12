@@ -34,7 +34,7 @@ RELIEFWEB_LIMIT = _int("RELIEFWEB_LIMIT", 30)
 
 # --- LLM ---
 GROQ_API_KEY = _str("GROQ_API_KEY")
-GROQ_MODEL = _str("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = _str("GROQ_MODEL", "openai/gpt-oss-120b")   # llama-3.3-70b retired Aug 2026
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 GEMINI_API_KEY = _str("GEMINI_API_KEY")
 GEMINI_MODEL = _str("GEMINI_MODEL", "gemini-2.5-flash")   # 2.0 Flash is retired
