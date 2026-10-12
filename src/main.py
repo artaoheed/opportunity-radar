@@ -1,7 +1,8 @@
 """Orchestrator. Run with `python -m src.main` from the repo root.
 
-Flow: quota pre-check -> search (Brave, DDG fallback) -> normalize ->
-dedup against Postgres -> LLM score -> top 8 -> email -> record seen.
+Flow: quota pre-check -> search (Brave, DDG fallback) + ReliefWeb ->
+normalize -> dedup against SQLite -> LLM score -> top 8 (devfund slots
+reserved) -> email -> record seen. The workflow commits data/radar.db after.
 
 Exit codes: 0 success (including 'nothing new today'), 1 hard failure
 (GitHub Actions marks the run failed and emails a workflow-failure notice)."""
@@ -15,7 +16,7 @@ from . import db, digest, mailer, settings
 from .circuit_breaker import QuotaExceeded, QuotaGuard
 from .extract import build_candidates
 from .score import score_all
-from .search import brave, duckduckgo, queries
+from .search import brave, duckduckgo, queries, reliefweb
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,15 +34,20 @@ def run() -> int:
     try:
         conn = db.connect()
     except Exception as exc:
-        log.error("Cannot reach Postgres at %s:%s — %s", settings.PG_HOST, settings.PG_PORT, exc)
+        log.error("Cannot open state DB at %s: %s", settings.DB_PATH, exc)
         return 1
+    pruned = db.prune(conn)
+    if pruned:
+        log.info("Pruned %d stale dedup rows", pruned)
 
     guard = QuotaGuard(conn)
     log.info("Quota at start: %s", guard.status_line())
 
     # --- Phase 1: search ---
     raw: list[tuple[str, dict]] = []
-    brave_blocked = False
+    brave_blocked = not settings.BRAVE_API_KEY
+    if brave_blocked:
+        log.info("No BRAVE_API_KEY: using DuckDuckGo for all queries")
     for category, query in queries.todays_queries():
         results: list[dict] = []
         if not brave_blocked:
@@ -50,12 +56,23 @@ def run() -> int:
             except QuotaExceeded as exc:
                 log.warning("Brave near quota (%s); using DuckDuckGo for the rest", exc)
                 brave_blocked = True
+            except requests.HTTPError as exc:
+                code = exc.response.status_code if exc.response is not None else None
+                if code in (401, 402, 403):
+                    # Bad key or lapsed plan: stop hammering Brave this run.
+                    log.warning("Brave returned %s (key invalid or plan lapsed); "
+                                "using DuckDuckGo for the rest", code)
+                    brave_blocked = True
+                else:
+                    log.warning("Brave failed on %r (%s); trying DuckDuckGo", query, exc)
             except requests.RequestException as exc:
                 log.warning("Brave failed on %r (%s); trying DuckDuckGo", query, exc)
         if not results:
             results = duckduckgo.search(query, settings.RESULTS_PER_QUERY)
         log.info("[%s] %r -> %d results", category, query, len(results))
         raw.extend((category, r) for r in results)
+
+    raw.extend(("devfund", r) for r in reliefweb.search())
 
     # --- Phase 2: extract/normalize ---
     candidates = build_candidates(raw)
@@ -70,7 +87,7 @@ def run() -> int:
         log.info("Nothing new today.")
         if settings.SEND_EMPTY_DIGEST:
             mailer.send(
-                "Opportunity Radar — nothing new today",
+                "Opportunity Radar: nothing new today",
                 "No new opportunities found today.\n\nQuota: " + guard.status_line(),
                 f"<p>No new opportunities found today.</p><p style='color:#999;font-size:11px'>Quota: {guard.status_line()}</p>",
             )
@@ -84,7 +101,7 @@ def run() -> int:
         # Both LLM providers at the stop line: abort cleanly, tell me why.
         log.error("Run stopped by circuit breaker: %s", exc)
         mailer.send(
-            "Opportunity Radar — skipped (near quota)",
+            "Opportunity Radar: skipped (near quota)",
             f"Run stopped: {exc}\nQuota: {guard.status_line()}",
             f"<p>Run stopped: {exc}</p><p>Quota: {guard.status_line()}</p>",
         )
@@ -96,8 +113,7 @@ def run() -> int:
         return 1
 
     # --- Phase 5: digest ---
-    ranked = sorted(candidates, key=lambda c: c.score or 0, reverse=True)
-    top = [c for c in ranked if (c.score or 0) >= settings.MIN_SCORE][: settings.DIGEST_SIZE]
+    top = digest.select_top(candidates)
 
     if not top:
         log.info("Everything scored below MIN_SCORE=%d.", settings.MIN_SCORE)

@@ -2,13 +2,19 @@ name: daily-digest
 
 on:
   schedule:
-    # 03:30 UTC = 04:30 WAT. GitHub cron can lag 5-15 min under load,
-    # so this targets landing before 5am rather than exactly 4:30.
+    # 03:30 UTC = 04:30 WAT, every second day of the month. GitHub cron can
+    # lag 5-15 min under load, so this targets landing before 5am.
     - cron: "30 3 */2 * *"
   workflow_dispatch: {}   # manual runs for testing
 
+# Needed to commit data/radar.db back after each run.
 permissions:
-  contents: read
+  contents: write
+
+# Never let two runs race on the state file.
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
 
 jobs:
   digest:
@@ -27,15 +33,28 @@ jobs:
 
       - name: Run digest
         env:
-          PG_HOST: ${{ secrets.PG_HOST }}
-          PG_PORT: ${{ secrets.PG_PORT }}
-          PG_USER: ${{ secrets.PG_USER }}
-          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
-          PG_DATABASE: ${{ secrets.PG_DATABASE }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          RELIEFWEB_APPNAME: ${{ secrets.RELIEFWEB_APPNAME }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
           DIGEST_TO: ${{ secrets.DIGEST_TO }}
         run: python -m src.main
+
+      # Runs even when the digest step fails, so quota counters are never
+      # lost. Each commit also counts as repo activity, which stops GitHub
+      # from auto-disabling this schedule after 60 quiet days.
+      - name: Commit state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/radar.db
+          if git diff --cached --quiet; then
+            echo "State unchanged"
+            exit 0
+          fi
+          git commit -m "chore: update radar state $(date -u +%F)"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push

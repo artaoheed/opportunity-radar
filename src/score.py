@@ -2,8 +2,8 @@
 
 One LLM call per batch of SCORING_BATCH_SIZE candidates (not one per
 candidate) to keep free-tier usage tiny: a normal day is 1-3 calls total.
-Groq (Llama 3.3 70B) primary; Gemini 2.0 Flash automatic fallback when
-Groq is quota-blocked or errors."""
+Groq (Llama 3.3 70B) primary; Gemini (GEMINI_MODEL, default 2.5 Flash)
+automatic fallback when Groq is quota-blocked, errors, or has no key."""
 
 import json
 import logging
@@ -18,9 +18,11 @@ from .extract import Candidate
 
 log = logging.getLogger(__name__)
 
+CATEGORIES = ("job", "startup", "cfp", "devfund")
+
 PROFILE_PATH = Path(__file__).resolve().parent.parent / "config" / "profile.md"
 
-PROMPT_TEMPLATE = """You are a strict filter for a daily tech-opportunity digest.
+PROMPT_TEMPLATE = """You are a strict filter for an opportunity digest.
 
 CANDIDATE PROFILE:
 {profile}
@@ -32,8 +34,10 @@ url, snippet). Score each 0-100 for relevance to this profile:
 - 20-49: weakly related
 - 0-19: irrelevant, expired, spam, or not actually an opportunity (e.g. a blog post about hiring)
 
-Also correct the category if wrong (one of: job, startup, cfp) and write a
-one-line rationale (max 20 words).
+Also correct the category if wrong (one of: job, startup, cfp, devfund) and
+write a one-line rationale (max 20 words). Use devfund for roles with foreign
+donors, development agencies, or their implementing firms/consultancies
+running programmes in Nigeria.
 
 Respond with ONLY a JSON array, no markdown fences, no commentary:
 [{{"i": 0, "score": 85, "category": "job", "rationale": "..."}}]
@@ -53,6 +57,15 @@ def _strip_fences(text: str) -> str:
     # If the model added prose, grab the outermost JSON array.
     m = re.search(r"\[.*\]", text, re.DOTALL)
     return m.group(0) if m else text
+
+
+def _redact(exc: Exception) -> str:
+    """Gemini puts the API key in the URL; never let it reach the logs."""
+    msg = str(exc)
+    for secret in (settings.GEMINI_API_KEY, settings.GROQ_API_KEY):
+        if secret:
+            msg = msg.replace(secret, "***")
+    return msg
 
 
 def _call_groq(prompt: str) -> str:
@@ -101,14 +114,15 @@ def _score_batch(guard: QuotaGuard, batch: list[Candidate]) -> None:
 
     text = None
     # Primary: Groq
-    try:
-        guard.check("groq")
-        guard.record("groq")
-        text = _call_groq(prompt)
-    except QuotaExceeded as exc:
-        log.warning("Groq quota-blocked (%s), falling back to Gemini", exc)
-    except requests.RequestException as exc:
-        log.warning("Groq call failed (%s), falling back to Gemini", exc)
+    if settings.GROQ_API_KEY:
+        try:
+            guard.check("groq")
+            guard.record("groq")
+            text = _call_groq(prompt)
+        except QuotaExceeded as exc:
+            log.warning("Groq quota-blocked (%s), falling back to Gemini", exc)
+        except requests.RequestException as exc:
+            log.warning("Groq call failed (%s), falling back to Gemini", _redact(exc))
 
     # Fallback: Gemini
     if text is None:
@@ -116,7 +130,10 @@ def _score_batch(guard: QuotaGuard, batch: list[Candidate]) -> None:
             raise RuntimeError("Groq unavailable and no GEMINI_API_KEY set")
         guard.check("gemini")  # raises QuotaExceeded -> run aborts cleanly
         guard.record("gemini")
-        text = _call_gemini(prompt)
+        try:
+            text = _call_gemini(prompt)
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Gemini call failed: {_redact(exc)}") from None
 
     try:
         rows = json.loads(_strip_fences(text))
@@ -130,7 +147,7 @@ def _score_batch(guard: QuotaGuard, batch: list[Candidate]) -> None:
             continue
         batch[i].score = max(0, min(100, int(row.get("score", 0))))
         cat = row.get("category")
-        if cat in ("job", "startup", "cfp"):
+        if cat in CATEGORIES:
             batch[i].category = cat
         batch[i].rationale = str(row.get("rationale", ""))[:200]
 

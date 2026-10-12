@@ -1,6 +1,7 @@
 """Query templates per category, rotated daily to vary sources while staying
-inside the Brave quota. Budget: QUERIES_PER_CATEGORY x 3 categories per day
-(default 9/day = ~270/month, well under the 2,000/month Brave ceiling)."""
+inside the Brave quota. Budget: QUERIES_PER_CATEGORY x 4 categories per run
+(default 12/run, every 2 days = ~180/month, well under the 2,000/month
+Brave ceiling)."""
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -42,6 +43,22 @@ TEMPLATES: dict[str, list[str]] = {
         'KubeCon OR "cloud native" 2026 "call for proposals"',
         'tech conference Africa 2026 "call for papers"',
         '"CFP closes" DevOps OR MLOps OR SRE',
+    ],
+    # Foreign donors and their implementing firms running Nigeria programmes.
+    # These roles value state-level delivery experience (3MTT SPM/CM ops) and
+    # are often paid in foreign currency. Site-scoped where the firm posts
+    # its own vacancies; broader phrasing catches the rest.
+    "devfund": [
+        'Nigeria "project manager" digital skills GIZ OR FCDO OR "European Union" vacancy',
+        'site:jobs.giz.de Nigeria',
+        'Nigeria "programme manager" OR "project coordinator" digital economy donor-funded',
+        'site:devex.com Nigeria "project manager" OR "team leader" digital',
+        '"Nigeria" "state coordinator" OR "state lead" programme vacancy World Bank OR UNDP OR FCDO',
+        'Nigeria vacancy DAI OR Palladium OR "Adam Smith International" OR Cowater digital',
+        'Nigeria consultant "expert roster" OR "call for experts" digital skills OR "digital economy"',
+        'site:unjobs.org Nigeria "project manager" OR "programme analyst" digital',
+        '"Nigeria" "team leader" OR "key expert" EU-funded digital OR skills tender',
+        'site:reliefweb.int/job Nigeria "project manager" OR "programme manager"',
     ],
 }
 

@@ -9,16 +9,37 @@ from .extract import Candidate
 
 TZ = ZoneInfo(settings.TIMEZONE)
 
-CATEGORY_LABELS = {"job": "Job", "startup": "Startup role", "cfp": "CFP"}
+CATEGORY_LABELS = {
+    "job": "Job",
+    "startup": "Startup role",
+    "cfp": "CFP",
+    "devfund": "Donor programme (Nigeria)",
+}
+
+
+def select_top(candidates: list[Candidate]) -> list[Candidate]:
+    """Pick the digest: up to DEVFUND_SLOTS devfund items first, then fill to
+    DIGEST_SIZE with the best remaining of any category. Only items at or
+    above MIN_SCORE qualify. Returned in score order."""
+    eligible = sorted(
+        (c for c in candidates if (c.score or 0) >= settings.MIN_SCORE),
+        key=lambda c: c.score or 0,
+        reverse=True,
+    )
+    reserved = [c for c in eligible if c.category == "devfund"][: settings.DEVFUND_SLOTS]
+    picked = {c.url_hash for c in reserved}
+    rest = [c for c in eligible if c.url_hash not in picked]
+    top = reserved + rest[: max(0, settings.DIGEST_SIZE - len(reserved))]
+    return sorted(top, key=lambda c: c.score or 0, reverse=True)
 
 
 def subject(items: list[Candidate]) -> str:
     date = datetime.now(TZ).strftime("%a %d %b")
-    return f"Opportunity Radar — {len(items)} for {date}"
+    return f"Opportunity Radar: {len(items)} for {date}"
 
 
 def plaintext(items: list[Candidate], quota_line: str) -> str:
-    lines = [f"Opportunity Radar — {datetime.now(TZ).strftime('%A %d %B %Y')}", ""]
+    lines = [f"Opportunity Radar: {datetime.now(TZ).strftime('%A %d %B %Y')}", ""]
     for n, c in enumerate(items, 1):
         lines += [
             f"{n}. [{CATEGORY_LABELS.get(c.category, c.category)}] {c.title} (score {c.score})",

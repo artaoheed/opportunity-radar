@@ -1,11 +1,11 @@
 # opportunity-radar
 
-Zero-cost daily agent. Finds tech opportunities (jobs, early-stage startup
-roles, conference CFPs) from sources that skip mainstream boards, scores them
+Zero-cost daily agent. Finds opportunities (tech jobs, early-stage startup
+roles, conference CFPs, and foreign-donor-funded Nigeria programme roles) from sources that skip mainstream boards, scores them
 against `config/profile.md` with an LLM, and emails a top-8 digest by 5am WAT.
 
 Hard constraint: $0/month. Brave Search free tier + DuckDuckGo fallback,
-Groq free tier + Gemini free tier fallback, existing Postgres for dedup,
+Groq free tier + Gemini free tier fallback, a SQLite file committed back to the repo for dedup,
 GitHub Actions cron for scheduling, Gmail SMTP for delivery. A circuit
 breaker (`src/circuit_breaker.py`) refuses any call that would push a
 provider past 90% of its free quota.
@@ -18,7 +18,7 @@ GitHub Actions cron (03:30 UTC / 04:30 WAT)
        ├─ queries.todays_queries()      9 queries/day, rotated templates
        ├─ brave.search()                → duckduckgo.search() fallback
        ├─ extract.build_candidates()    normalize URLs, drop board noise
-       ├─ db.filter_unseen()            Postgres dedup BEFORE scoring
+       ├─ db.filter_unseen()            SQLite dedup BEFORE scoring
        ├─ score.score_all()             Groq → Gemini fallback, batched
        ├─ digest + mailer               top 8 ≥ MIN_SCORE via Gmail SMTP
        └─ db.record_candidates()        everything scored, sent flagged
@@ -31,21 +31,19 @@ near quota" email. It never falls through to a paid tier.
 
 ## One-time setup
 
-### 1. Database (GCP node, or WSL via psql to the NodePort)
+### 1. State
 
-```bash
-# connected to the existing instance, any db:
-psql -h <NODE_EXTERNAL_IP> -p 30432 -U appuser -d appdb \
-  -c "CREATE DATABASE opportunity_radar OWNER appuser;"
-
-# then the schema:
-psql -h <NODE_EXTERNAL_IP> -p 30432 -U appuser -d opportunity_radar \
-  -f migrations/001_init.sql
-```
+None to set up. `data/radar.db` (SQLite) is created on the first run and the
+workflow commits it back after every run. It stores only URL hashes, scores
+and quota counters, no titles or links. That commit also keeps the repo
+active, so GitHub never auto-disables the schedule.
 
 ### 2. API keys (browser)
 
-- Brave Search API key: api.search.brave.com (Free plan)
+- Brave Search API key: api.search.brave.com (optional; no free tier since
+  Feb 2026, so leave empty to run on DuckDuckGo only)
+- ReliefWeb appname (optional): pre-approved appname for the jobs API,
+  apidoc.reliefweb.int. Adds a structured Nigeria jobs feed to `devfund`.
 - Groq API key: console.groq.com
 - Gemini API key: aistudio.google.com (free tier)
 - Gmail app password: Google Account → Security → 2-Step Verification →
@@ -74,20 +72,17 @@ from the Actions tab (`workflow_dispatch`) before trusting the cron.
 
 ## Failure behaviour
 
-- Postgres unreachable / bad secrets / unparseable LLM output / SMTP failure
+- Bad secrets / unparseable LLM output / SMTP failure
   → exit 1 → GitHub emails you a workflow-failure notice.
 - Both LLM providers near quota → clean stop + "skipped" email → exit 0.
 - Email send failure → candidates are NOT recorded, so they retry tomorrow.
-- GitHub disables cron on repos with no pushes for 60 days: any commit
-  (even a README touch) resets the clock.
+- Brave 401/402/403 (bad key or lapsed plan) → DuckDuckGo for the rest of
+  the run, no crash.
+- State is committed even when the run fails, so quota counters persist.
 
 ## Known sharp edges
 
-- The Postgres NodePort is internet-exposed (GitHub runners have no stable
-  IPs). Mitigation: strong password, separate database, and the `appuser`
-  role only. Consider `pg_hba.conf` tightening or Tailscale later.
 - DuckDuckGo scraping is best-effort: markup changes or CAPTCHAs return
-  empty results silently. Brave is the real source; DDG only cushions
-  quota exhaustion.
+  empty results silently. Brave and ReliefWeb are the reliable sources.
 - Groq free-tier ceilings shift; `GROQ_DAILY_LIMIT` is conservative at
   1000/day. A normal day uses 1-3 calls, so this is far from binding.
